@@ -19,9 +19,10 @@ function TabNavigator({
   genres, 
   isDarkMode, 
   toggleTheme,
-  skippedMovies = [], // Default to empty array if not provided
-  addToSkippedMovies = () => {}, // Default no-op function if not provided
-  removeFromSkippedMovies = () => {} // Default no-op function if not provided
+  skippedMovies = [], 
+  addToSkippedMovies = () => {}, 
+  removeFromSkippedMovies = () => {},
+  newReleases = [] 
 }) {
   return (
     <Tab.Navigator
@@ -73,16 +74,7 @@ function TabNavigator({
             genres={genres}
             isDarkMode={isDarkMode}
             toggleTheme={toggleTheme}
-            // Pass newReleases data - we'll simulate with recent highly-rated movies
-            newReleases={seen.length > 5 ? seen.slice(0, 10).map(m => ({
-              ...m,
-              vote_count: Math.floor(Math.random() * 5000) + 500,
-              release_date: m.release_date || new Date().toISOString().split('T')[0]
-            })) : unseen.slice(0, 10).map(m => ({
-              ...m,
-              vote_count: Math.floor(Math.random() * 5000) + 500,
-              release_date: m.release_date || new Date().toISOString().split('T')[0]
-            }))}
+            newReleases={newReleases}
           />
         )}
       </Tab.Screen>
@@ -123,26 +115,58 @@ function TabNavigator({
             {...props}
             seen={seen}
             unseen={unseen}
-            onAddToSeen={newMovie => {
+            onAddToSeen={(newMovie) => {
               console.log("Adding to seen:", newMovie.title);
-              // Check for duplicates
-              if (!seen.some(movie => movie.id === newMovie.id)) {
+              // Check if it's an array (for batch updates)
+              if (Array.isArray(newMovie)) {
+                setSeen(newMovie);
+                return;
+              }
+              
+              // Check if it's an update to an existing movie
+              if (seen.some(movie => movie.id === newMovie.id)) {
+                // Update the movie
+                const updatedSeen = seen.map(movie => 
+                  movie.id === newMovie.id ? newMovie : movie
+                );
+                setSeen(updatedSeen);
+              } else {
+                // Add new movie
                 setSeen([...seen, newMovie]);
-                // Remove from skipped if it was skipped before
-                if (skippedMovies.includes(newMovie.id)) {
-                  removeFromSkippedMovies(newMovie.id);
-                }
+              }
+              
+              // If it was in watchlist, remove it
+              if (unseen.some(movie => movie.id === newMovie.id)) {
+                const filteredUnseen = unseen.filter(m => m.id !== newMovie.id);
+                setUnseen(filteredUnseen);
+              }
+              
+              // Remove from skipped if it was skipped before
+              if (skippedMovies.includes(newMovie.id)) {
+                removeFromSkippedMovies(newMovie.id);
               }
             }}
-            onAddToUnseen={newMovie => {
+            onAddToUnseen={(newMovie) => {
               console.log("Adding to watchlist:", newMovie.title);
+              // Check if it's an array (for batch updates)
+              if (Array.isArray(newMovie)) {
+                setUnseen(newMovie);
+                return;
+              }
+              
+              // Don't add if already in seen list
+              if (seen.some(movie => movie.id === newMovie.id)) {
+                return;
+              }
+              
               // Check for duplicates
               if (!unseen.some(movie => movie.id === newMovie.id)) {
                 setUnseen([...unseen, newMovie]);
-                // Remove from skipped if it was skipped before
-                if (skippedMovies.includes(newMovie.id)) {
-                  removeFromSkippedMovies(newMovie.id);
-                }
+              }
+              
+              // Remove from skipped if it was skipped before
+              if (skippedMovies.includes(newMovie.id)) {
+                removeFromSkippedMovies(newMovie.id);
               }
             }}
             genres={genres}
