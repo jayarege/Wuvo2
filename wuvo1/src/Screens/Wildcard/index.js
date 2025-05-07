@@ -28,6 +28,7 @@ const STORAGE_KEY = 'wuvo_compared_movies';
 const BASELINE_COMPLETE_KEY = 'wuvo_baseline_complete';
 const COMPARISON_COUNT_KEY = 'wuvo_comparison_count';
 const COMPARISON_PATTERN_KEY = 'wuvo_comparison_pattern';
+const SKIPPED_MOVIES_KEY = 'wuvo_skipped_movies';
 
 // Enhanced movie baseline with top movies
 const baselineMovies = [
@@ -159,9 +160,6 @@ const uniqueBaselineMovies = Array.from(new Set(baselineMovies.map(m => m.id)))
     return baselineMovies.find(m => m.id === id);
   });
 
-// Storage keys for skipped and permanently hidden movies
-const SKIPPED_MOVIES_KEY = 'wuvo_skipped_movies';
-
 function WildcardScreen({ seen, setSeen, unseen, onAddToSeen, onAddToUnseen, genres, isDarkMode }) {
   const [seenMovie, setSeenMovie] = useState(null);
   const [newMovie, setNewMovie] = useState(null);
@@ -169,15 +167,68 @@ function WildcardScreen({ seen, setSeen, unseen, onAddToSeen, onAddToUnseen, gen
   const [error, setError] = useState(null);
   const [lastAction, setLastAction] = useState(null);
   const [comparedMovies, setComparedMovies] = useState([]);
-  const [skippedMovies, setSkippedMovies] = useState([]); // Movies user has skipped (never show again)
+  const [skippedMovies, setSkippedMovies] = useState([]);
   const [baselineComplete, setBaselineComplete] = useState(false);
   const [showBaselineCompleteModal, setShowBaselineCompleteModal] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [selectedGenre, setSelectedGenre] = useState(null);
   const [tempGenre, setTempGenre] = useState(null);
   const [comparisonCount, setComparisonCount] = useState(0);
-  const [comparisonPattern, setComparisonPattern] = useState(0); // 0-4: tracks where we are in the pattern
+  const [comparisonPattern, setComparisonPattern] = useState(0);
   const isLoadingRef = useRef(false);
+  const appReady = useRef(false);
+
+  // Custom reset function for just the Wildcard screen
+  const handleReset = useCallback(async () => {
+    Alert.alert(
+      "Reset Wildcard",
+      "Are you sure you want to reset the wildcard screen? This will clear all comparison data but keep your movie ratings.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Reset", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setLoading(true);
+              
+              // Reset all Wildcard-related storage
+              await AsyncStorage.removeItem(STORAGE_KEY);
+              await AsyncStorage.removeItem(BASELINE_COMPLETE_KEY);
+              await AsyncStorage.removeItem(COMPARISON_COUNT_KEY);
+              await AsyncStorage.removeItem(COMPARISON_PATTERN_KEY);
+              await AsyncStorage.removeItem(SKIPPED_MOVIES_KEY);
+              
+              // Reset local state
+              setComparedMovies([]);
+              setSkippedMovies([]);
+              setBaselineComplete(false);
+              setComparisonCount(0);
+              setComparisonPattern(0);
+              setLastAction(null);
+              setSeenMovie(null);
+              setNewMovie(null);
+              setError(null);
+              
+              // Reset the loading flag ref
+              isLoadingRef.current = false;
+              
+              // Fetch a new movie after a short delay
+              setTimeout(() => {
+                fetchRandomMovie();
+              }, 300);
+              
+              console.log("Wildcard state reset successfully");
+            } catch (e) {
+              console.error('Failed to reset wildcard state', e);
+              setError('Failed to reset. Please try again.');
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  }, [fetchRandomMovie]);
 
   // Load compared movies and other state from storage on initial load
   useEffect(() => {
@@ -217,13 +268,34 @@ function WildcardScreen({ seen, setSeen, unseen, onAddToSeen, onAddToUnseen, gen
         console.log(`Baseline complete: ${isBaselineComplete}`);
         console.log(`Comparison count: ${countValue}`);
         console.log(`Comparison pattern: ${patternValue}`);
+        
+        // Mark app as ready
+        appReady.current = true;
       } catch (e) {
         console.error('Failed to load stored state', e);
+        appReady.current = true;
       }
     };
     
     loadStoredState();
   }, []);
+
+  // Special effect to handle resets when seen/unseen lists change
+  useEffect(() => {
+    // This will run when the component mounts or when seen/unseen changes
+    if (appReady.current && !loading && isLoadingRef.current === false) {
+      // Reset state if we were in an error or stuck state
+      if (error || (!seenMovie && !newMovie && !loading)) {
+        console.log("Detected a stuck state or error - resetting wildcard");
+        setError(null);
+        setLoading(true);
+        setTimeout(() => {
+          isLoadingRef.current = false;
+          fetchRandomMovie();
+        }, 300);
+      }
+    }
+  }, [seen, unseen]);
 
   // Save compared movies to storage whenever they change
   useEffect(() => {
@@ -280,6 +352,22 @@ function WildcardScreen({ seen, setSeen, unseen, onAddToSeen, onAddToUnseen, gen
     saveComparisonPattern();
   }, [comparisonPattern]);
 
+  // Save skipped movies whenever they change
+  useEffect(() => {
+    const saveSkippedMovies = async () => {
+      try {
+        const jsonValue = JSON.stringify(skippedMovies);
+        await AsyncStorage.setItem(SKIPPED_MOVIES_KEY, jsonValue);
+      } catch (e) {
+        console.error('Failed to save skipped movies', e);
+      }
+    };
+    
+    if (skippedMovies.length > 0) {
+      saveSkippedMovies();
+    }
+  }, [skippedMovies]);
+
   // Get next baseline movie to compare
   const getNextBaselineMovie = useCallback(() => {
     // Find remaining baseline movies (not yet compared)
@@ -288,17 +376,17 @@ function WildcardScreen({ seen, setSeen, unseen, onAddToSeen, onAddToUnseen, gen
     );
     
     if (remainingBaselineMovies.length === 0) {
-  // No more baseline movies, set baseline complete
-  if (!baselineComplete) {
-    setBaselineComplete(true);
-    setShowBaselineCompleteModal(true);
-    
-    // Important: Reset the comparison pattern when completing the baseline
-    // This ensures we'll start with an unknown movie (pattern 0) after completion
-    setComparisonPattern(0);
-  }
-  return null;
-}
+      // No more baseline movies, set baseline complete
+      if (!baselineComplete) {
+        setBaselineComplete(true);
+        setShowBaselineCompleteModal(true);
+        
+        // Important: Reset the comparison pattern when completing the baseline
+        // This ensures we'll start with an unknown movie (pattern 0) after completion
+        setComparisonPattern(0);
+      }
+      return null;
+    }
     
     // Get a random movie from the remaining ones
     return remainingBaselineMovies[Math.floor(Math.random() * remainingBaselineMovies.length)];
@@ -415,27 +503,26 @@ function WildcardScreen({ seen, setSeen, unseen, onAddToSeen, onAddToUnseen, gen
       apiUrl += `&with_genres=${selectedGenre}`;
     }
     
-    // Add random page (1-10) to get more variety
-// Occasionally use different sort orders to get variety
-const sortOptions = [
-  'vote_average.desc', 
-  'popularity.desc',
-  'primary_release_date.desc'
-];
-const randomSort = sortOptions[Math.floor(Math.random() * sortOptions.length)];
-apiUrl = apiUrl.replace('vote_average.desc', randomSort);
+    // Occasionally use different sort orders to get variety
+    const sortOptions = [
+      'vote_average.desc', 
+      'popularity.desc',
+      'primary_release_date.desc'
+    ];
+    const randomSort = sortOptions[Math.floor(Math.random() * sortOptions.length)];
+    apiUrl = apiUrl.replace('vote_average.desc', randomSort);
 
-// Fetch first to get total page count
-const initialResponse = await fetch(apiUrl);
-if (!initialResponse.ok) {
-  throw new Error('Failed to fetch similar movies');
-}
-const initialData = await initialResponse.json();
-const maxPage = Math.min(initialData.total_pages || 1, 20);
+    // Fetch first to get total page count
+    const initialResponse = await fetch(apiUrl);
+    if (!initialResponse.ok) {
+      throw new Error('Failed to fetch similar movies');
+    }
+    const initialData = await initialResponse.json();
+    const maxPage = Math.min(initialData.total_pages || 1, 20);
 
-// Only fetch another page if we have multiple pages
-const page = maxPage > 1 ? Math.floor(Math.random() * maxPage) + 1 : 1;
-apiUrl += `&page=${page}`;
+    // Only fetch another page if we have multiple pages
+    const page = maxPage > 1 ? Math.floor(Math.random() * maxPage) + 1 : 1;
+    apiUrl += `&page=${page}`;
     
     // Fetch similar movies
     const response = await fetch(apiUrl);
@@ -461,6 +548,9 @@ apiUrl += `&page=${page}`;
     
     // Add all movies we've already compared
     comparedMovies.forEach(id => excludedIds.add(id));
+    
+    // Add all movies we've skipped
+    skippedMovies.forEach(id => excludedIds.add(id));
     
     // Filter out movies already seen, in watchlist, already compared, or without posters
     const filteredResults = data.results.filter(
@@ -512,12 +602,11 @@ apiUrl += `&page=${page}`;
       };
     }
     
-    // Pick a random movie from the filtered results
-  // Shuffle the filtered results to avoid always picking the same ones
-const shuffledResults = [...filteredResults].sort(() => 0.5 - Math.random());
+    // Shuffle the filtered results to avoid always picking the same ones
+    const shuffledResults = [...filteredResults].sort(() => 0.5 - Math.random());
 
-// Pick the first one after shuffling
-const randomMovie = shuffledResults[0];
+    // Pick the first one after shuffling
+    const randomMovie = shuffledResults[0];
     
     // Format the movie data
     return {
@@ -533,7 +622,7 @@ const randomMovie = shuffledResults[0];
       eloRating: randomMovie.vote_average * 10,
       userRating: randomMovie.vote_average
     };
-  }, [seen, unseen, selectedGenre, comparedMovies]);
+  }, [seen, unseen, selectedGenre, comparedMovies, skippedMovies]);
 
   // Get a pair of known movies for comparison (occasionally)
   const getKnownVsKnownPair = useCallback(async () => {
@@ -749,7 +838,7 @@ const randomMovie = shuffledResults[0];
     // Apply temp values to actual state
     setSelectedGenre(tempGenre);
     
-          // Only fetch new movie if settings actually changed
+    // Only fetch new movie if settings actually changed
     if (settingsChanged) {
       // Use setTimeout to ensure the modal is completely gone before changing UI state
       setTimeout(() => {
@@ -775,66 +864,66 @@ const randomMovie = shuffledResults[0];
   }, []);
 
   // Enhanced ELO-based rating adjustment function
-const adjustRating = useCallback((winner, loser, winnerIsSeenMovie) => {
-  // Calculate ratings with existing data
-  const winnerRating = winner.userRating;
-  const loserRating = loser.userRating;
-  
-  // Calculate expected win probability using modified Elo formula
-  // We divide by 4 instead of 400 because our scale is 1-10 not 0-3000
-  const expectedWinProbability = 1 / (1 + Math.pow(10, (loserRating - winnerRating) / 4));
-  
-  // Dynamic K-factor: higher for movies with fewer comparisons
-  const winnerK = calculateKFactor(winner.gamesPlayed || 0);
-  const loserK = calculateKFactor(loser.gamesPlayed || 0);
-  
-  // Calculate rating changes
-  // The (1 - expectedWinProbability) is the "surprise factor" - how unexpected was this win?
-  // If the winner was already expected to win, the change will be small
-  const winnerIncrease = Math.max(0.1, winnerK * (1 - expectedWinProbability));
-  const loserDecrease = Math.max(0.1, loserK * (1 - expectedWinProbability));
-  
-  // Apply bigger adjustment for upsets (low rated beats high rated)
-  let adjustedWinnerIncrease = winnerIncrease;
-  let adjustedLoserDecrease = loserDecrease;
-  if (winnerRating < loserRating) {
-    // This is an upset - boost the adjustment
-    adjustedWinnerIncrease *= 1.2; // 20% boost for upset victory
-  }
-  
-  // Cap adjustments to prevent wild swings
-  const MAX_RATING_CHANGE = 0.7;
-  adjustedWinnerIncrease = Math.min(MAX_RATING_CHANGE, adjustedWinnerIncrease);
-  adjustedLoserDecrease = Math.min(MAX_RATING_CHANGE, adjustedLoserDecrease);
-  
-  // Calculate new ratings
-  let newWinnerRating = winnerRating + adjustedWinnerIncrease;
-  let newLoserRating = loserRating - adjustedLoserDecrease;
-  
-  // Clamp between 1-10 and round to nearest tenth
-  newWinnerRating = Math.round(Math.min(10, Math.max(1, newWinnerRating)) * 10) / 10;
-  newLoserRating = Math.round(Math.min(10, Math.max(1, newLoserRating)) * 10) / 10;
-  
-  // Create updated movie objects
-  const updatedWinner = {
-    ...winner,
-    userRating: newWinnerRating,
-    eloRating: newWinnerRating * 10,
-    gamesPlayed: (winner.gamesPlayed || 0) + 1
-  };
-  
-  const updatedLoser = {
-    ...loser,
-    userRating: newLoserRating,
-    eloRating: newLoserRating * 10,
-    gamesPlayed: (loser.gamesPlayed || 0) + 1
-  };
-  
-  // Return objects formatted for the appropriate positions
-  return winnerIsSeenMovie 
-    ? { updatedSeenMovie: updatedWinner, updatedNewMovie: updatedLoser } 
-    : { updatedSeenMovie: updatedLoser, updatedNewMovie: updatedWinner };
-}, []);
+  const adjustRating = useCallback((winner, loser, winnerIsSeenMovie) => {
+    // Calculate ratings with existing data
+    const winnerRating = winner.userRating;
+    const loserRating = loser.userRating;
+    
+    // Calculate expected win probability using modified Elo formula
+    // We divide by 4 instead of 400 because our scale is 1-10 not 0-3000
+    const expectedWinProbability = 1 / (1 + Math.pow(10, (loserRating - winnerRating) / 4));
+    
+    // Dynamic K-factor: higher for movies with fewer comparisons
+    const winnerK = calculateKFactor(winner.gamesPlayed || 0);
+    const loserK = calculateKFactor(loser.gamesPlayed || 0);
+    
+    // Calculate rating changes
+    // The (1 - expectedWinProbability) is the "surprise factor" - how unexpected was this win?
+    // If the winner was already expected to win, the change will be small
+    const winnerIncrease = Math.max(0.1, winnerK * (1 - expectedWinProbability));
+    const loserDecrease = Math.max(0.1, loserK * (1 - expectedWinProbability));
+    
+    // Apply bigger adjustment for upsets (low rated beats high rated)
+    let adjustedWinnerIncrease = winnerIncrease;
+    let adjustedLoserDecrease = loserDecrease;
+    if (winnerRating < loserRating) {
+      // This is an upset - boost the adjustment
+      adjustedWinnerIncrease *= 1.2; // 20% boost for upset victory
+    }
+    
+    // Cap adjustments to prevent wild swings
+    const MAX_RATING_CHANGE = 0.7;
+    adjustedWinnerIncrease = Math.min(MAX_RATING_CHANGE, adjustedWinnerIncrease);
+    adjustedLoserDecrease = Math.min(MAX_RATING_CHANGE, adjustedLoserDecrease);
+    
+    // Calculate new ratings
+    let newWinnerRating = winnerRating + adjustedWinnerIncrease;
+    let newLoserRating = loserRating - adjustedLoserDecrease;
+    
+    // Clamp between 1-10 and round to nearest tenth
+    newWinnerRating = Math.round(Math.min(10, Math.max(1, newWinnerRating)) * 10) / 10;
+    newLoserRating = Math.round(Math.min(10, Math.max(1, newLoserRating)) * 10) / 10;
+    
+    // Create updated movie objects
+    const updatedWinner = {
+      ...winner,
+      userRating: newWinnerRating,
+      eloRating: newWinnerRating * 10,
+      gamesPlayed: (winner.gamesPlayed || 0) + 1
+    };
+    
+    const updatedLoser = {
+      ...loser,
+      userRating: newLoserRating,
+      eloRating: newLoserRating * 10,
+      gamesPlayed: (loser.gamesPlayed || 0) + 1
+    };
+    
+    // Return objects formatted for the appropriate positions
+    return winnerIsSeenMovie 
+      ? { updatedSeenMovie: updatedWinner, updatedNewMovie: updatedLoser } 
+      : { updatedSeenMovie: updatedLoser, updatedNewMovie: updatedWinner };
+  }, []);
 
   // Helper function to calculate dynamic K-factor based on experience
   const calculateKFactor = useCallback((gamesPlayed) => {
@@ -888,11 +977,10 @@ const adjustRating = useCallback((winner, loser, winnerIsSeenMovie) => {
         m.id === seenMovie.id ? updatedSeenMovie : m
       );
       
-      // Add new movie to seen list
+      // Add new movie to seen list if not already there
       if (!seen.some(m => m.id === updatedNewMovie.id)) {
-  onAddToSeen(updatedNewMovie);
-}
-
+        onAddToSeen(updatedNewMovie);
+      }
       
       // Save the action for potential undo
       setLastAction({
@@ -953,11 +1041,10 @@ const adjustRating = useCallback((winner, loser, winnerIsSeenMovie) => {
         m.id === seenMovie.id ? updatedSeenMovie : m
       );
       
-      // Add new movie to seen list
+      // Add new movie to seen list if not already there
       if (!seen.some(m => m.id === updatedNewMovie.id)) {
-  onAddToSeen(updatedNewMovie);
-}
-
+        onAddToSeen(updatedNewMovie);
+      }
       
       // Save the action for potential undo
       setLastAction({
@@ -1401,6 +1488,13 @@ const adjustRating = useCallback((winner, loser, winnerIsSeenMovie) => {
               <View style={styles.filterBadge} />
             )}
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={handleReset}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="refresh" size={24} color={isDarkMode ? '#FFD700' : '#4B0082'} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1464,12 +1558,15 @@ const adjustRating = useCallback((winner, loser, winnerIsSeenMovie) => {
                 >
                   {newMovie.title}
                 </Text>
-                <Text style={[compareStyles.ratingTag, { color: isDarkMode ? '#FFD700' : '#4B0082' }]}>
-                  {isKnownVsKnown ? 
-                    `Your rating: ${newMovie.userRating.toFixed(1)}` : 
-                    `TMDb: ${newMovie.score.toFixed(1)} (${newMovie.voteCount} votes)`
-                  }
-                </Text>
+                {isKnownVsKnown || seen.some(m => m.id === newMovie.id) ? (
+                  <Text style={[compareStyles.ratingTag, { color: isDarkMode ? '#FFD700' : '#4B0082' }]}>
+                    Your rating: {newMovie.userRating.toFixed(1)}
+                  </Text>
+                ) : (
+                  <Text style={[compareStyles.ratingTag, { color: isDarkMode ? '#FFD700' : '#4B0082' }]}>
+                    TMDb: {newMovie.score.toFixed(1)} ({newMovie.voteCount} votes)
+                  </Text>
+                )}
                 <Text style={[movieCardStyles.genresText, { color: isDarkMode ? '#D3D3D3' : '#666' }]}>
                   {newMovie.genre_ids.map(id => genres[id] || 'Unknown').join(', ')}
                 </Text>
@@ -1489,7 +1586,7 @@ const adjustRating = useCallback((winner, loser, winnerIsSeenMovie) => {
             </TouchableOpacity>
             
             {/* Only show "Add to watchlist" if this isn't a Known vs Known comparison */}
-            {!isKnownVsKnown && (
+            {!isKnownVsKnown && !seen.some(m => m.id === newMovie.id) && (
               <TouchableOpacity
                 style={[compareStyles.unseenButton, { backgroundColor: isDarkMode ? '#8A2BE2' : '#4B0082' }]}
                 onPress={handleUnseen}
