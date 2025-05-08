@@ -31,6 +31,7 @@ const USER_PREFERENCES_KEY = 'wuvo_user_preferences';
 const ONBOARDING_COMPLETE_KEY = 'wuvo_onboarding_complete';
 
 // Sample data for initial state
+// Initial genres mapping
 const initialGenres = {
   28: 'Action',
   12: 'Adventure',
