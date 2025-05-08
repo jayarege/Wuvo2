@@ -80,23 +80,23 @@ function TabNavigator({
       </Tab.Screen>
       
       <Tab.Screen name="TopRated" options={{ title: 'Top 10' }}>
-        {props => (
-          <TopRatedScreen
-            {...props}
-            movies={seen}
-            genres={genres}
-            onUpdateRating={(movieId, newRating) => {
-              const updatedSeen = seen.map(m =>
-                m.id === movieId
-                  ? { ...m, userRating: newRating, eloRating: newRating * 100 }
-                  : m
-              );
-              setSeen(updatedSeen);
-            }}
-            isDarkMode={isDarkMode}
-          />
-        )}
-      </Tab.Screen>
+  {props => (
+    <TopRatedScreen
+      {...props}
+      movies={seen}
+      genres={genres || {}}
+      onUpdateRating={(movieId, newRating) => {
+        const updatedSeen = seen.map(m =>
+          m.id === movieId
+            ? { ...m, userRating: newRating, eloRating: newRating * 100 }
+            : m
+        );
+        setSeen(updatedSeen);
+      }}
+      isDarkMode={isDarkMode}
+    />
+  )}
+</Tab.Screen>
       
       <Tab.Screen name="Watchlist" options={{ title: 'Watchlist' }}>
         {props => (
