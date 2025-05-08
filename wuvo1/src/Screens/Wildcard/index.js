@@ -280,22 +280,22 @@ function WildcardScreen({ seen, setSeen, unseen, onAddToSeen, onAddToUnseen, gen
     loadStoredState();
   }, []);
 
-  // Special effect to handle resets when seen/unseen lists change
-  useEffect(() => {
-    // This will run when the component mounts or when seen/unseen changes
-    if (appReady.current && !loading && isLoadingRef.current === false) {
-      // Reset state if we were in an error or stuck state
-      if (error || (!seenMovie && !newMovie && !loading)) {
-        console.log("Detected a stuck state or error - resetting wildcard");
-        setError(null);
-        setLoading(true);
-        setTimeout(() => {
-          isLoadingRef.current = false;
-          fetchRandomMovie();
-        }, 300);
-      }
+useEffect(() => {
+  // This will run when the component mounts or when seen/unseen changes
+  if (appReady.current && !loading && isLoadingRef.current === false) {
+    // Reset state if we were in an error or stuck state
+    if (error || (!seenMovie && !newMovie && !loading)) {
+      console.log("Detected a stuck state or error - resetting wildcard");
+      setError(null);
+      setLoading(true);
+      setTimeout(() => {
+        isLoadingRef.current = false;
+        fetchRandomMovie();
+      }, 300);
     }
-  }, [seen, unseen]);
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [seen, unseen]);
 
   // Save compared movies to storage whenever they change
   useEffect(() => {
@@ -788,19 +788,17 @@ function WildcardScreen({ seen, setSeen, unseen, onAddToSeen, onAddToUnseen, gen
       isLoadingRef.current = false;
     }
   }, [
-    seen, 
-    unseen, 
-    selectedGenre, 
-    genres, 
-    baselineComplete,
-    comparedMovies,
-    comparisonPattern,
-    getNextBaselineMovie,
-    getMovieDetails, 
-    getSimilarMovie,
-    getKnownVsKnownPair,
-    uniqueBaselineMovies
-  ]);
+  seen, 
+  selectedGenre, 
+  genres, 
+  baselineComplete,
+  comparedMovies,
+  comparisonPattern,
+  getNextBaselineMovie,
+  getMovieDetails, 
+  getSimilarMovie,
+  getKnownVsKnownPair
+]);
 
   // Initial fetch on component mount
   useEffect(() => {
@@ -863,77 +861,76 @@ function WildcardScreen({ seen, setSeen, unseen, onAddToSeen, onAddToUnseen, gen
     setFilterModalVisible(false);
   }, []);
 
-  // Enhanced ELO-based rating adjustment function
-  const adjustRating = useCallback((winner, loser, winnerIsSeenMovie) => {
-    // Calculate ratings with existing data
-    const winnerRating = winner.userRating;
-    const loserRating = loser.userRating;
-    
-    // Calculate expected win probability using modified Elo formula
-    // We divide by 4 instead of 400 because our scale is 1-10 not 0-3000
-    const expectedWinProbability = 1 / (1 + Math.pow(10, (loserRating - winnerRating) / 4));
-    
-    // Dynamic K-factor: higher for movies with fewer comparisons
-    const winnerK = calculateKFactor(winner.gamesPlayed || 0);
-    const loserK = calculateKFactor(loser.gamesPlayed || 0);
-    
-    // Calculate rating changes
-    // The (1 - expectedWinProbability) is the "surprise factor" - how unexpected was this win?
-    // If the winner was already expected to win, the change will be small
-    const winnerIncrease = Math.max(0.1, winnerK * (1 - expectedWinProbability));
-    const loserDecrease = Math.max(0.1, loserK * (1 - expectedWinProbability));
-    
-    // Apply bigger adjustment for upsets (low rated beats high rated)
-    let adjustedWinnerIncrease = winnerIncrease;
-    let adjustedLoserDecrease = loserDecrease;
-    if (winnerRating < loserRating) {
-      // This is an upset - boost the adjustment
-      adjustedWinnerIncrease *= 1.2; // 20% boost for upset victory
-    }
-    
-    // Cap adjustments to prevent wild swings
-    const MAX_RATING_CHANGE = 0.7;
-    adjustedWinnerIncrease = Math.min(MAX_RATING_CHANGE, adjustedWinnerIncrease);
-    adjustedLoserDecrease = Math.min(MAX_RATING_CHANGE, adjustedLoserDecrease);
-    
-    // Calculate new ratings
-    let newWinnerRating = winnerRating + adjustedWinnerIncrease;
-    let newLoserRating = loserRating - adjustedLoserDecrease;
-    
-    // Clamp between 1-10 and round to nearest tenth
-    newWinnerRating = Math.round(Math.min(10, Math.max(1, newWinnerRating)) * 10) / 10;
-    newLoserRating = Math.round(Math.min(10, Math.max(1, newLoserRating)) * 10) / 10;
-    
-    // Create updated movie objects
-    const updatedWinner = {
-      ...winner,
-      userRating: newWinnerRating,
-      eloRating: newWinnerRating * 10,
-      gamesPlayed: (winner.gamesPlayed || 0) + 1
-    };
-    
-    const updatedLoser = {
-      ...loser,
-      userRating: newLoserRating,
-      eloRating: newLoserRating * 10,
-      gamesPlayed: (loser.gamesPlayed || 0) + 1
-    };
-    
-    // Return objects formatted for the appropriate positions
-    return winnerIsSeenMovie 
-      ? { updatedSeenMovie: updatedWinner, updatedNewMovie: updatedLoser } 
-      : { updatedSeenMovie: updatedLoser, updatedNewMovie: updatedWinner };
-  }, []);
+ // Helper function to calculate dynamic K-factor based on experience
+const calculateKFactor = useCallback((gamesPlayed) => {
+  // Use higher K for movies with fewer comparisons
+  if (gamesPlayed < 5) return 40;      // Very new movies (fast learning)
+  if (gamesPlayed < 10) return 30;     // Newer movies
+  if (gamesPlayed < 20) return 20;     // Somewhat established
+  return 10;                           // Well-established ratings (more stable)
+}, []);
 
-  // Helper function to calculate dynamic K-factor based on experience
-  const calculateKFactor = useCallback((gamesPlayed) => {
-    // Use higher K for movies with fewer comparisons
-    if (gamesPlayed < 5) return 40;      // Very new movies (fast learning)
-    if (gamesPlayed < 10) return 30;     // Newer movies
-    if (gamesPlayed < 20) return 20;     // Somewhat established
-    return 10;                           // Well-established ratings (more stable)
-  }, []);
-
+// Enhanced ELO-based rating adjustment function
+const adjustRating = useCallback((winner, loser, winnerIsSeenMovie) => {
+  // Calculate ratings with existing data
+  const winnerRating = winner.userRating;
+  const loserRating = loser.userRating;
+  
+  // Calculate expected win probability using modified Elo formula
+  // We divide by 4 instead of 400 because our scale is 1-10 not 0-3000
+  const expectedWinProbability = 1 / (1 + Math.pow(10, (loserRating - winnerRating) / 4));
+  
+  // Dynamic K-factor: higher for movies with fewer comparisons
+  const winnerK = calculateKFactor(winner.gamesPlayed || 0);
+  const loserK = calculateKFactor(loser.gamesPlayed || 0);
+  
+  // Calculate rating changes
+  // The (1 - expectedWinProbability) is the "surprise factor" - how unexpected was this win?
+  // If the winner was already expected to win, the change will be small
+  const winnerIncrease = Math.max(0.1, winnerK * (1 - expectedWinProbability));
+  const loserDecrease = Math.max(0.1, loserK * (1 - expectedWinProbability));
+  
+  // Apply bigger adjustment for upsets (low rated beats high rated)
+  let adjustedWinnerIncrease = winnerIncrease;
+  let adjustedLoserDecrease = loserDecrease;
+  if (winnerRating < loserRating) {
+    // This is an upset - boost the adjustment
+    adjustedWinnerIncrease *= 1.2; // 20% boost for upset victory
+  }
+  
+  // Cap adjustments to prevent wild swings
+  const MAX_RATING_CHANGE = 0.7;
+  adjustedWinnerIncrease = Math.min(MAX_RATING_CHANGE, adjustedWinnerIncrease);
+  adjustedLoserDecrease = Math.min(MAX_RATING_CHANGE, adjustedLoserDecrease);
+  
+  // Calculate new ratings
+  let newWinnerRating = winnerRating + adjustedWinnerIncrease;
+  let newLoserRating = loserRating - adjustedLoserDecrease;
+  
+  // Clamp between 1-10 and round to nearest tenth
+  newWinnerRating = Math.round(Math.min(10, Math.max(1, newWinnerRating)) * 10) / 10;
+  newLoserRating = Math.round(Math.min(10, Math.max(1, newLoserRating)) * 10) / 10;
+  
+  // Create updated movie objects
+  const updatedWinner = {
+    ...winner,
+    userRating: newWinnerRating,
+    eloRating: newWinnerRating * 10,
+    gamesPlayed: (winner.gamesPlayed || 0) + 1
+  };
+  
+  const updatedLoser = {
+    ...loser,
+    userRating: newLoserRating,
+    eloRating: newLoserRating * 10,
+    gamesPlayed: (loser.gamesPlayed || 0) + 1
+  };
+  
+  // Return objects formatted for the appropriate positions
+  return winnerIsSeenMovie 
+    ? { updatedSeenMovie: updatedWinner, updatedNewMovie: updatedLoser } 
+    : { updatedSeenMovie: updatedLoser, updatedNewMovie: updatedWinner };
+}, [calculateKFactor]);
   // Handle user choosing the seen movie as better
   const handleSeenWin = useCallback(() => {
     if (isLoadingRef.current || !seenMovie || !newMovie) {
@@ -1829,20 +1826,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     zIndex: 1001,
   },
-  infoSection: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 24,
-  },
-  infoText: {
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  infoSubtext: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
   filterSection: {
     marginBottom: 20,
   },
@@ -1940,5 +1923,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
   }
 });
-
 export default WildcardScreen;
